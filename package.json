@@ -1,0 +1,9 @@
+{
+  "name": "modo-chatbot",
+  "version": "2.0.0",
+  "description": "Sklep demo z chatbotem do obsługi zamówień i zwrotów (Gemini / Grok)",
+  "main": "server.js",
+  "scripts": { "start": "node server.js", "check": "node --check server.js" },
+  "engines": { "node": ">=18" },
+  "license": "MIT"
+}

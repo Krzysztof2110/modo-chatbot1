@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: modo-chatbot
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /health
+    envVars:
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: GEMINI_API_KEY
+        sync: false          # wpiszesz w panelu Render
+      - key: XAI_API_KEY
+        sync: false
+      - key: ADMIN_PASS
+        generateValue: true  # Render wygeneruje hasło – zobaczysz je w Environment
+      - key: TRUST_PROXY
+        value: "1"
