@@ -1,4 +1,4 @@
-// Modo – chatbot do obsługi zamówień i zwrotów. LLM: Google Gemini lub xAI Grok (API zgodne z OpenAI). Node.js >= 18, bez zależności npm.
+// Modo – chatbot do obsługi zamówień i zwrotów. LLM: Google Gemini lub Groq (API zgodne z OpenAI). Node.js >= 18, bez zależności npm.
 const http = require('http'), fs = require('fs'), path = require('path'), crypto = require('crypto');
 
 /* ---------- konfiguracja ---------- */
@@ -13,16 +13,16 @@ const RETURN_DAYS = 30, MAX_COUPON = 15, STATUSES = ['w realizacji', 'wysłane',
 
 const PROVIDERS = {
   gemini: { url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', keyEnv: 'GEMINI_API_KEY', model: 'gemini-flash-latest' },
-  grok: { url: 'https://api.x.ai/v1/chat/completions', keyEnv: 'XAI_API_KEY', model: 'grok-4' }
+  groq: { url: 'https://api.groq.com/openai/v1/chat/completions', keyEnv: 'GROQ_API_KEY', model: 'openai/gpt-oss-120b' }
 };
 const keyOf = n => process.env[PROVIDERS[n].keyEnv];
-const primary = (process.env.LLM_PROVIDER || (process.env.GEMINI_API_KEY ? 'gemini' : process.env.XAI_API_KEY ? 'grok' : 'gemini')).toLowerCase();
-if (!PROVIDERS[primary]) { console.error('Nieznany LLM_PROVIDER: użyj "gemini" lub "grok"'); process.exit(1); }
-const secondary = primary === 'gemini' ? 'grok' : 'gemini';
+const primary = (process.env.LLM_PROVIDER || (process.env.GEMINI_API_KEY ? 'gemini' : process.env.GROQ_API_KEY ? 'groq' : 'gemini')).toLowerCase();
+if (!PROVIDERS[primary]) { console.error('Nieznany LLM_PROVIDER: użyj "gemini" lub "groq"'); process.exit(1); }
+const secondary = primary === 'gemini' ? 'groq' : 'gemini';
 // Kolejność prób: główny dostawca, potem zapasowy (jeśli ma klucz). LLM_FALLBACK=off wyłącza przełączanie.
 const CHAIN = [primary, ...(String(process.env.LLM_FALLBACK || 'auto').toLowerCase() === 'off' ? [] : [secondary])].filter(keyOf);
-const modelOf = n => process.env[n === 'gemini' ? 'GEMINI_MODEL' : 'GROK_MODEL'] || (n === primary && process.env.MODEL) || PROVIDERS[n].model;
-const urlOf = n => process.env[n === 'gemini' ? 'GEMINI_URL' : 'GROK_URL'] || (n === primary && process.env.LLM_URL) || PROVIDERS[n].url;
+const modelOf = n => process.env[n === 'gemini' ? 'GEMINI_MODEL' : 'GROQ_MODEL'] || (n === primary && process.env.MODEL) || PROVIDERS[n].model;
+const urlOf = n => process.env[n === 'gemini' ? 'GEMINI_URL' : 'GROQ_URL'] || (n === primary && process.env.LLM_URL) || PROVIDERS[n].url;
 const COOLDOWN_MS = 60000;
 
 /* ---------- baza danych (plik JSON) ---------- */
@@ -131,9 +131,9 @@ ZASADY:
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const down = {}; // dostawca -> do kiedy omijany po awarii
-const stripExtra = msgs => msgs.map(m => m.tool_calls ? { ...m, tool_calls: m.tool_calls.map(({ extra_content, ...t }) => t) } : m); // extra_content jest tylko dla Gemini
+const stripExtra = msgs => msgs.map(m => m.tool_calls ? { ...m, tool_calls: m.tool_calls.map(({ extra_content, ...t }) => t) } : m); // extra_content jest tylko dla Gemini (Groq go nie przyjmuje)
 async function callProvider(n, messages) {
-  const r = await fetch(urlOf(n), { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + keyOf(n) }, body: JSON.stringify({ model: modelOf(n), messages: n === 'gemini' ? messages : stripExtra(messages), tools: TOOLS, max_tokens: 1500 }), signal: AbortSignal.timeout(25000) });
+  const r = await fetch(urlOf(n), { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + keyOf(n) }, body: JSON.stringify({ model: modelOf(n), messages: n === 'gemini' ? messages : stripExtra(messages), tools: TOOLS, max_tokens: 2000 }), signal: AbortSignal.timeout(Number(process.env.LLM_TIMEOUT_MS) || 30000) });
   if (!r.ok) throw new Error(`${n} HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
   const j = await r.json();
   if (!j.choices?.[0]?.message) throw new Error(`${n}: pusta odpowiedź`);
@@ -236,7 +236,7 @@ http.createServer(async (req, res) => {
       if (hits[ip].length > 20) return send(res, 429, { error: 'Zbyt wiele wiadomości, poczekaj chwilę.' });
       const text = String(b.text || '').trim().slice(0, 600), sid = String(b.sid || '').slice(0, 64);
       if (!text || !sid) return send(res, 400, { error: 'Pusta wiadomość' });
-      if (!CHAIN.length) return send(res, 503, { error: 'Asystent nie jest skonfigurowany (brak GEMINI_API_KEY / XAI_API_KEY na serwerze).' });
+      if (!CHAIN.length) return send(res, 503, { error: 'Asystent nie jest skonfigurowany (brak GEMINI_API_KEY / GROQ_API_KEY na serwerze).' });
       let reply;
       try { reply = await chat(sid, text); } catch (e) { console.error('chat error:', e.message); return send(res, 502, { error: 'Asystent chwilowo niedostępny. Spróbuj za chwilę.' }); }
       db.chats.push({ t: Date.now(), sid: sid.slice(0, 8), user: text, bot: reply }); db.chats = db.chats.slice(-300); save();
